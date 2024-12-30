@@ -1441,6 +1441,20 @@ pub fn Stream(comptime Handler: type) type {
                     } else log.warn("unimplemented OSC callback: {}", .{cmd});
                 },
 
+                .container_push => |v| {
+                    if (@hasDecl(T, "containerPush")) {
+                        try self.handler.containerPush(v.name, v.runtime, v.uid);
+                        return;
+                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                },
+
+                .container_pop => |v| {
+                    if (@hasDecl(T, "containerPop")) {
+                        try self.handler.containerPop(v.name, v.runtime, v.uid);
+                        return;
+                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                },
+
                 .hyperlink_start => |v| {
                     if (@hasDecl(T, "startHyperlink")) {
                         try self.handler.startHyperlink(v.uri, v.id);

@@ -1401,6 +1401,42 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(message);
     }
 
+    pub fn containerPush(
+        self: *StreamHandler,
+        name: []const u8,
+        runtime: terminal.osc.Command.ContainerRuntime,
+        uid: u32,
+    ) !void {
+        var message = apprt.surface.Message{ .container_push = undefined };
+
+        const name_len = @min(name.len, message.container_push.name.len);
+        @memcpy(message.container_push.name[0..name_len], name[0..name_len]);
+        message.container_push.name[name_len] = 0;
+
+        message.container_push.runtime = runtime;
+        message.container_push.uid = uid;
+
+        self.surfaceMessageWriter(message);
+    }
+
+    pub fn containerPop(
+        self: *StreamHandler,
+        name: []const u8,
+        runtime: ?terminal.osc.Command.ContainerRuntime,
+        uid: u32,
+    ) !void {
+        var message = apprt.surface.Message{ .container_pop = undefined };
+
+        const name_len = @min(name.len, message.container_pop.name.len);
+        @memcpy(message.container_pop.name[0..name_len], name[0..name_len]);
+        message.container_pop.name[name_len] = 0;
+
+        message.container_pop.runtime = runtime;
+        message.container_pop.uid = uid;
+
+        self.surfaceMessageWriter(message);
+    }
+
     /// Send a report to the pty.
     pub fn sendSizeReport(self: *StreamHandler, style: terminal.SizeReportStyle) void {
         switch (style) {

@@ -380,6 +380,7 @@ cgroup_path: ?[]const u8 = null,
 pub const InitConfig = struct {
     parent: bool = false,
     pwd: ?[]const u8 = null,
+    container: ?CoreSurface.Container = null,
 
     pub fn init(
         alloc: Allocator,
@@ -394,9 +395,13 @@ pub const InitConfig = struct {
             null;
         errdefer if (pwd) |p| alloc.free(p);
 
+        // Start in parent's container if parent pushed a container
+        const container = parent.containers.getLastOrNull();
+
         return .{
             .parent = true,
             .pwd = pwd,
+            .container = container,
         };
     }
 
@@ -601,6 +606,11 @@ fn realize(self: *Surface) !void {
     } else if (!self.init_config.parent) {
         // A hack, see the "parent_surface" field for more information.
         config.@"working-directory" = self.app.config.@"working-directory";
+    }
+
+    // Override command if a container has been pushed in the surface's parent
+    if (self.init_config.container) |container| {
+        config.command = container.command;
     }
 
     // Initialize our surface now that we have the stable pointer.

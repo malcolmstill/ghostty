@@ -149,6 +149,20 @@ pub const Command = union(enum) {
         body: []const u8,
     },
 
+    /// Push a container (OSC 777)
+    container_push: struct {
+        name: []const u8,
+        runtime: ContainerRuntime,
+        uid: u32,
+    },
+
+    /// Pop a container (OSC 777)
+    container_pop: struct {
+        name: []const u8,
+        runtime: ?ContainerRuntime,
+        uid: u32,
+    },
+
     /// Start a hyperlink (OSC 8)
     hyperlink_start: struct {
         id: ?[]const u8 = null,
@@ -186,6 +200,10 @@ pub const Command = union(enum) {
         @"error",
         indeterminate,
         pause,
+    };
+
+    pub const ContainerRuntime = enum {
+        toolbox,
     };
 };
 
@@ -322,6 +340,27 @@ pub const Parser = struct {
 
         // Title of a desktop notification
         notification_title,
+
+        // Container operation
+        container_operation,
+
+        // Expect a string name for the container
+        container_push_name,
+
+        // Expect a string container type
+        container_push_container_type,
+
+        // Expect a uid for a container
+        container_push_uid,
+
+        // Expect a string name for the container
+        container_pop_name,
+
+        // Expect a string container type
+        container_pop_container_type,
+
+        // Expect a uid for a container
+        container_pop_uid,
 
         // Expect a string parameter. param_str must be set as well as
         // buf_start.
@@ -745,15 +784,20 @@ pub const Parser = struct {
                 'a'...'z' => {},
                 ';' => {
                     const ext = self.buf[self.buf_start .. self.buf_idx - 1];
-                    if (!std.mem.eql(u8, ext, "notify")) {
-                        log.warn("unknown rxvt extension: {s}", .{ext});
-                        self.state = .invalid;
+                    if (std.mem.eql(u8, ext, "notify")) {
+                        self.command = .{ .show_desktop_notification = undefined };
+                        self.buf_start = self.buf_idx;
+                        self.state = .notification_title;
+                        return;
+                    } else if (std.mem.eql(u8, ext, "container")) {
+                        self.buf_start = self.buf_idx;
+                        self.state = .container_operation;
                         return;
                     }
 
-                    self.command = .{ .show_desktop_notification = undefined };
-                    self.buf_start = self.buf_idx;
-                    self.state = .notification_title;
+                    log.warn("unknown rxvt extension: {s}", .{ext});
+                    self.state = .invalid;
+                    return;
                 },
                 else => self.state = .invalid,
             },
@@ -766,6 +810,110 @@ pub const Parser = struct {
                     self.state = .string;
                 },
                 else => {},
+            },
+
+            .container_operation => switch (c) {
+                ';' => {
+                    const op = self.buf[self.buf_start .. self.buf_idx - 1];
+
+                    if (std.mem.eql(u8, op, "push")) {
+                        self.command = .{ .container_push = undefined };
+                        self.buf_start = self.buf_idx;
+                        self.state = .container_push_name;
+                    } else if (std.mem.eql(u8, op, "pop")) {
+                        self.command = .{ .container_pop = undefined };
+                        self.buf_start = self.buf_idx;
+                        self.state = .container_pop_name;
+                    } else {
+                        log.warn("unknown container operation: {s}", .{op});
+                        self.state = .invalid;
+                    }
+                },
+                else => {},
+            },
+
+            .container_push_name => switch (c) {
+                ';' => {
+                    self.command.container_push.name = self.buf[self.buf_start .. self.buf_idx - 1];
+                    self.buf_start = self.buf_idx;
+                    self.state = .container_push_container_type;
+                },
+                else => {},
+            },
+
+            .container_push_container_type => switch (c) {
+                ';' => {
+                    const value = self.buf[self.buf_start .. self.buf_idx - 1];
+
+                    const runtime = if (std.mem.eql(u8, value, "toolbox"))
+                        .toolbox
+                    else {
+                        self.state = .invalid;
+                        return;
+                    };
+
+                    self.command.container_push.runtime = runtime;
+                    self.buf_start = self.buf_idx;
+                    self.state = .container_push_uid;
+                },
+                else => {},
+            },
+
+            .container_push_uid => switch (c) {
+                '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' => {
+                    self.complete = true;
+
+                    const idx = self.buf_idx - self.buf_start;
+                    if (idx > 0) self.command.container_push.uid *|= 10;
+                    self.command.container_push.uid +|= c - '0';
+                },
+                else => {
+                    self.state = .invalid;
+                },
+            },
+
+            .container_pop_name => switch (c) {
+                ';' => {
+                    const name = self.buf[self.buf_start .. self.buf_idx - 1];
+
+                    self.command.container_pop.name = name;
+                    self.buf_start = self.buf_idx;
+                    self.state = .container_pop_container_type;
+                },
+                else => {},
+            },
+
+            .container_pop_container_type => switch (c) {
+                ';' => {
+                    const value = self.buf[self.buf_start .. self.buf_idx - 1];
+
+                    const runtime: ?Command.ContainerRuntime = if (std.mem.eql(u8, value, ""))
+                        null
+                    else if (std.mem.eql(u8, value, "toolbox"))
+                        .toolbox
+                    else {
+                        self.state = .invalid;
+                        return;
+                    };
+
+                    self.command.container_pop.runtime = runtime;
+                    self.buf_start = self.buf_idx;
+                    self.state = .container_pop_uid;
+                },
+                else => {},
+            },
+
+            .container_pop_uid => switch (c) {
+                '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' => {
+                    self.complete = true;
+
+                    const idx = self.buf_idx - self.buf_start;
+                    if (idx > 0) self.command.container_pop.uid *|= 10;
+                    self.command.container_pop.uid +|= c - '0';
+                },
+                else => {
+                    self.state = .invalid;
+                },
             },
 
             .@"9" => switch (c) {

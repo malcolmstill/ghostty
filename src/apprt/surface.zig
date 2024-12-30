@@ -55,6 +55,30 @@ pub const Message = union(enum) {
         body: [255:0]u8,
     },
 
+    /// Push container
+    container_push: struct {
+        /// Container name.
+        name: [255:0]u8,
+
+        /// Container runtime.
+        runtime: terminal.osc.Command.ContainerRuntime,
+
+        /// Uid
+        uid: u32,
+    },
+
+    /// Pop container
+    container_pop: struct {
+        /// Container name.
+        name: [255:0]u8,
+
+        /// Container type.
+        runtime: ?terminal.osc.Command.ContainerRuntime,
+
+        /// Uid
+        uid: u32,
+    },
+
     /// Health status change for the renderer.
     renderer_health: renderer.Health,
 

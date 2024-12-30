@@ -131,6 +131,9 @@ child_exited: bool = false,
 /// to let us know.
 focused: bool = true,
 
+/// Stack of containers
+containers: std.ArrayList(Container),
+
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
 /// input can be forwarded to the OS for further processing if it
@@ -355,6 +358,10 @@ const DerivedConfig = struct {
     }
 };
 
+pub const Container = struct {
+    command: []const u8,
+};
+
 /// Create a new surface. This must be called from the main thread. The
 /// pointer to the memory for the surface must be provided and must be
 /// stable due to interfacing with various callbacks.
@@ -481,6 +488,9 @@ pub fn init(
     var io_thread = try termio.Thread.init(alloc);
     errdefer io_thread.deinit();
 
+    // Initialise container stack
+    const containers = std.ArrayList(Container).init(alloc);
+
     self.* = .{
         .alloc = alloc,
         .app = app,
@@ -498,6 +508,7 @@ pub fn init(
         .renderer_thr = undefined,
         .mouse = .{},
         .keyboard = .{},
+        .containers = containers,
         .io = undefined,
         .io_thread = io_thread,
         .io_thr = undefined,
@@ -707,6 +718,11 @@ pub fn deinit(self: *Surface) void {
         v.deinit();
         self.alloc.destroy(v);
     }
+
+    for (self.containers.items) |container| {
+        self.alloc.free(container.command);
+    }
+    self.containers.deinit();
 
     // Clean up our keyboard state
     for (self.keyboard.queued.items) |req| req.deinit();
@@ -933,6 +949,16 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             const title = std.mem.sliceTo(&notification.title, 0);
             const body = std.mem.sliceTo(&notification.body, 0);
             try self.showDesktopNotification(title, body);
+        },
+
+        .container_push => |container| {
+            const name = std.mem.sliceTo(&container.name, 0);
+            try self.containerPush(name, container.runtime, container.uid);
+        },
+
+        .container_pop => |container| {
+            const name = std.mem.sliceTo(&container.name, 0);
+            try self.containerPop(name, container.runtime, container.uid);
         },
 
         .renderer_health => |health| self.updateRendererHealth(health),
@@ -4532,6 +4558,22 @@ fn completeClipboardReadOSC52(
         self.alloc,
         buf,
     ), .unlocked);
+}
+
+fn containerPush(self: *Surface, name: [:0]const u8, runtime: terminal.osc.Command.ContainerRuntime, _: u32) !void {
+    const command = switch (runtime) {
+        .toolbox => try std.fmt.allocPrint(self.alloc, "toolbox enter {s}", .{name}),
+    };
+
+    try self.containers.append(.{ .command = command });
+}
+
+fn containerPop(self: *Surface, name: [:0]const u8, runtime: ?terminal.osc.Command.ContainerRuntime, uid: u32) !void {
+    if (self.containers.popOrNull()) |container| {
+        self.alloc.free(container.command);
+    } else {
+        log.warn("container pop with push (name = \"{s}\", runtime = {?}, uid = {})", .{ name, runtime, uid });
+    }
 }
 
 fn showDesktopNotification(self: *Surface, title: [:0]const u8, body: [:0]const u8) !void {

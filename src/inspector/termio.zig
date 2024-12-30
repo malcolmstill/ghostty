@@ -270,6 +270,11 @@ pub const VTEvent = struct {
                     try std.fmt.allocPrintZ(alloc, "{}", .{value}),
                 ),
 
+                u32 => try md.put(
+                    key,
+                    try std.fmt.allocPrintZ(alloc, "{}", .{value}),
+                ),
+
                 []const u8 => try md.put(key, try alloc.dupeZ(u8, value)),
 
                 else => |T| {
